@@ -34,7 +34,7 @@ fun main(args: Array<String>) {
     Searcher().start(pattern, inputName, outputName)
 }
 
-class Searcher() {
+class Searcher {
 
     fun start(pattern: Pattern, inputName: String, outputName: String) {
         val searcherQueue = LinkedBlockingQueue<String>(MAX_CONCURRENT_REQUESTS)
