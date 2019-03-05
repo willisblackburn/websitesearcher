@@ -25,7 +25,8 @@ to download pages and search for matches.
 threads and not to implement the searcher using, say, Vert.x's asynchronous I/O APIs.)
 The threads communicate with each other through two `BlockingQueue` instances.
 One queue fans out from the reader thread, and the other collects the matches.
-After creating the reader and searcher threads, the main thead drains the collector queue until it receives an empty
+After creating the reader and searcher threads, the main thead drains the collector queue,
+passing each match to `write`, until it receives an empty
 string, which it interprets as EOF.
 
 `Searcher` doesn't read or write files. Another class, `CSVFileReader`, parses the CSV and delivers URLs when it is
