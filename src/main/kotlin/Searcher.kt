@@ -51,9 +51,9 @@ fun downloadUsingJsoup(url: String): String {
 const val EOF = ""
 
 class Searcher(
-    val maxConcurrentRequests: Int = DEFAULT_MAX_CONCURRENT_REQUESTS,
-    val contextLength: Int = DEFAULT_CONTEXT_LENGTH,
-    val download: (String) -> String = ::downloadUsingJsoup
+    private val maxConcurrentRequests: Int = DEFAULT_MAX_CONCURRENT_REQUESTS,
+    private val contextLength: Int = DEFAULT_CONTEXT_LENGTH,
+    private val download: (String) -> String = ::downloadUsingJsoup
 ) {
 
     fun start(pattern: Pattern, reader: BufferedReader, writer: PrintWriter) {
@@ -78,7 +78,7 @@ class Searcher(
                 val match = outputQueue.take()
                 if (match == EOF) {
                     log("Received EOF")
-                    break;
+                    break
                 }
                 writer.println(match)
                 count++
