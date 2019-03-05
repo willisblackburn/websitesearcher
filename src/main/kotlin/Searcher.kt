@@ -37,9 +37,6 @@ fun openOutputFile(outputName: String): PrintWriter {
     return PrintWriter(FileWriter(outputName))
 }
 
-const val DEFAULT_MAX_CONCURRENT_REQUESTS = 20
-const val DEFAULT_CONTEXT_LENGTH = 40
-
 const val HTTP_TIMEOUT_MILLIS = 5000
 
 fun downloadUsingJsoup(url: String): String {
@@ -48,12 +45,15 @@ fun downloadUsingJsoup(url: String): String {
     return Jsoup.parse(body).text()
 }
 
+const val DEFAULT_MAX_CONCURRENT_REQUESTS = 20
+const val DEFAULT_CONTEXT_LENGTH = 40
+
 const val EOF = ""
 
 class Searcher(
+    private val download: (String) -> String = ::downloadUsingJsoup,
     private val maxConcurrentRequests: Int = DEFAULT_MAX_CONCURRENT_REQUESTS,
-    private val contextLength: Int = DEFAULT_CONTEXT_LENGTH,
-    private val download: (String) -> String = ::downloadUsingJsoup
+    private val contextLength: Int = DEFAULT_CONTEXT_LENGTH
 ) {
 
     fun start(pattern: Pattern, reader: BufferedReader, writer: PrintWriter) {
