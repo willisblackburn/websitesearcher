@@ -1,3 +1,5 @@
+package websitesearcher
+
 import org.jsoup.Jsoup
 import java.io.*
 import java.util.concurrent.*
@@ -18,7 +20,7 @@ import kotlin.system.exitProcess
 fun main(args: Array<String>) {
 
     if (args.size < 3) {
-        println("Usage: Searcher word input output")
+        println("Usage: Searcher regex input output")
         exitProcess(-1)
     }
 
