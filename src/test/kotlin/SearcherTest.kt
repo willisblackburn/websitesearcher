@@ -1,3 +1,5 @@
+package websitesearcher
+
 import io.mockk.*
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
