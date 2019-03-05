@@ -9,9 +9,9 @@ import kotlin.concurrent.thread
 import kotlin.system.exitProcess
 
 /**
- * Searcher word input output
+ * Searcher regex input output
  *
- * word: a word we're searching for
+ * regex: a regex we're searching for
  * input: a file containing the URLs.
  * output: the file to which we will write the matches.
  */
