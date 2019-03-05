@@ -59,6 +59,9 @@ class InputFileReader(inputName: String): () -> String?, Closeable {
     }
 }
 
+/**
+ * Output file is just the messages from the output queue, one per line.
+ */
 class OutputFileWriter(outputName: String): (String) -> Unit, Closeable {
 
     private val writer = PrintWriter(FileWriter(outputName))
@@ -130,7 +133,7 @@ class Searcher(
             // to the searcher queue. Interrupt it to get it to stop.
             readerThread.interrupt()
         }
-        log("Wrote $count URLs")
+        log("Wrote $count matches")
     }
 
     private fun startReaderThread(
