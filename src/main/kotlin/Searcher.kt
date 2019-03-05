@@ -24,9 +24,9 @@ fun main(args: Array<String>) {
 
     val pattern = Pattern.compile(args[0], Pattern.CASE_INSENSITIVE)
 
-    InputFileReader(args[1]).use { reader ->
-        OutputFileWriter(args[2]).use { writer ->
-            Searcher().start(pattern, reader, writer)
+    CSVFileReader(BufferedReader(FileReader(args[1]))).use { reader ->
+        PrintWriter(FileWriter(args[2])).use { writer ->
+            Searcher().start(pattern, reader::read, writer::println)
         }
     }
 }
@@ -35,16 +35,14 @@ fun main(args: Array<String>) {
  * The file is a CSV in which the first field is a rank and the second file is a scheme-less URL
  * surrounded by quotes.
  */
-class InputFileReader(inputName: String): () -> String?, Closeable {
-
-    private val reader = BufferedReader(FileReader(inputName))
+class CSVFileReader(val reader: BufferedReader): Closeable {
 
     init {
         // The first line is the header, so we'll just throw that away.
         reader.readLine()
     }
 
-    override fun invoke(): String? {
+    fun read(): String? {
         while (true) {
             val line = reader.readLine() ?: return null
             val values = line.split(',')
@@ -56,22 +54,6 @@ class InputFileReader(inputName: String): () -> String?, Closeable {
 
     override fun close() {
         reader.close()
-    }
-}
-
-/**
- * Output file is just the messages from the output queue, one per line.
- */
-class OutputFileWriter(outputName: String): (String) -> Unit, Closeable {
-
-    private val writer = PrintWriter(FileWriter(outputName))
-
-    override fun invoke(line: String) {
-        writer.println(line)
-    }
-
-    override fun close() {
-        writer.close()
     }
 }
 
@@ -100,7 +82,7 @@ class Searcher(
     private val contextLength: Int = DEFAULT_CONTEXT_LENGTH
 ) {
 
-    fun start(pattern: Pattern, reader: () -> String?, writer: (String) -> Unit) {
+    fun start(pattern: Pattern, read: () -> String?, write: (String) -> Unit) {
 
         // Allocate space in the queues for one pending item to/from each searcher.
         val searcherQueue = LinkedBlockingQueue<String>(maxConcurrentRequests)
@@ -109,7 +91,7 @@ class Searcher(
         // Set up the threads.
         // The searcher threads terminate when they receive an EOF from the reader, which will happen if the
         // reader runs out of data, throws an exception, or is interrupted by the writer.
-        val readerThread = startReaderThread(reader, searcherQueue)
+        val readerThread = startReaderThread(read, searcherQueue)
         val searcherCount = AtomicInteger(maxConcurrentRequests)
         for (id in 0 until maxConcurrentRequests) {
             startSearcherThread(id, searcherCount, pattern, searcherQueue, outputQueue)
@@ -124,12 +106,12 @@ class Searcher(
                     log("Received EOF")
                     break
                 }
-                writer(match)
+                write(match)
                 count++
             }
         } catch (e: Exception) {
             log("Failed", e)
-            // If the writer thread failed, it's possible that the reader is still running and is blocked writing
+            // If the writer thread failed, it's possible that the read is still running and is blocked writing
             // to the searcher queue. Interrupt it to get it to stop.
             readerThread.interrupt()
         }
