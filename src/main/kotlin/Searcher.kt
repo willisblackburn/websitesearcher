@@ -34,7 +34,7 @@ fun main(args: Array<String>) {
 }
 
 /**
- * The file is a CSV in which the first field is a rank and the second file is a scheme-less URL
+ * The file is a CSV in which the first field is a rank and the second field is a scheme-less URL
  * surrounded by quotes.
  */
 class CSVFileReader(val reader: BufferedReader): Closeable {
