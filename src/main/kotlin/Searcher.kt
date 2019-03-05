@@ -28,59 +28,67 @@ fun main(args: Array<String>) {
     }
 
     val pattern = Pattern.compile(args[0], Pattern.CASE_INSENSITIVE)
-    val inputName = args[1]
-    val outputName = args[2]
+    val reader = openInputFile(args[1])
+    val writer = openOutputFile(args[2])
 
-    Searcher().start(pattern, inputName, outputName)
+    Searcher().start(pattern, reader, writer)
+}
+
+fun openInputFile(inputName: String): BufferedReader {
+    return BufferedReader(FileReader(inputName))
+}
+
+fun openOutputFile(outputName: String): PrintWriter {
+    return PrintWriter(FileWriter(outputName))
 }
 
 class Searcher {
 
-    fun start(pattern: Pattern, inputName: String, outputName: String) {
+    fun start(pattern: Pattern, reader: BufferedReader, writer: PrintWriter) {
         val searcherQueue = LinkedBlockingQueue<String>(MAX_CONCURRENT_REQUESTS)
         val outputQueue = LinkedBlockingQueue<String>(MAX_CONCURRENT_REQUESTS)
 
-        val readerThread = startReaderThread(inputName, searcherQueue)
+        val readerThread = startReaderThread(reader, searcherQueue)
         val searcherCount = AtomicInteger(MAX_CONCURRENT_REQUESTS)
         for (id in 0 until MAX_CONCURRENT_REQUESTS) {
             startSearcherThread(id, searcherCount, pattern, searcherQueue, outputQueue)
         }
-        val writerThread = startWriterThread(outputName, outputQueue, readerThread)
+        val writerThread = startWriterThread(writer, outputQueue, readerThread)
 
         readerThread.join()
         writerThread.join()
     }
 
     private fun startReaderThread(
-        inputName: String,
+        reader: BufferedReader,
         searcherQueue: BlockingQueue<String>
     ) = thread(name = "Reader") {
         log("Started")
         var count = 0
         try {
-            BufferedReader(FileReader(inputName)).use { reader ->
-                // The file is a CSV in which the first field is a rank and the second file is a scheme-less URL
-                // surrounded by quotes. The first line is the header, so we'll just throw that away.
-                reader.readLine()
-                var line = reader.readLine()
-                while (line != null) {
-                    val values = line.split(',')
-                    if (values.size >= 2) {
-                        val partialUrl = values[1].trim('"')
-                        log("Found $partialUrl")
-                        searcherQueue.put(partialUrl)
-                        count++
-                    }
-                    line = reader.readLine()
+            // The file is a CSV in which the first field is a rank and the second file is a scheme-less URL
+            // surrounded by quotes. The first line is the header, so we'll just throw that away.
+            reader.readLine()
+            var line = reader.readLine()
+            while (line != null) {
+                val values = line.split(',')
+                if (values.size >= 2) {
+                    val partialUrl = values[1].trim('"')
+                    log("Found $partialUrl")
+                    searcherQueue.put(partialUrl)
+                    count++
                 }
-                log("EOF")
+                line = reader.readLine()
             }
+            log("EOF")
         } catch (e: InterruptedException) {
             log("Interrupted", e)
         } catch (e: InterruptedIOException) {
             log("Interrupted", e)
         } catch (e: Exception) {
             log("Failed", e)
+        } finally {
+            reader.close()
         }
         log("Found $count URLs")
         searcherQueue.put(EOF)
@@ -88,29 +96,29 @@ class Searcher {
     }
 
     private fun startWriterThread(
-        outputName: String,
+        writer: PrintWriter,
         outputQueue: BlockingQueue<String>,
         readerThread: Thread
     ) = thread(name = "Writer") {
         log("Started")
         var count = 0
         try {
-            PrintWriter(FileWriter(outputName)).use { writer ->
-                while (true) {
-                    val match = outputQueue.take()
-                    if (match == EOF) {
-                        log("Received EOF")
-                        return@use
-                    }
-                    writer.println(match)
-                    count++
+            while (true) {
+                val match = outputQueue.take()
+                if (match == EOF) {
+                    log("Received EOF")
+                    return@thread
                 }
+                writer.println(match)
+                count++
             }
         } catch (e: Exception) {
             log("Failed", e)
             // If the writer thread failed, it's possible that the reader is still running and is blocked writing
             // to the searcher queue. Interrupt it to get it to stop.
             readerThread.interrupt()
+        } finally {
+            writer.close()
         }
         log("Wrote $count URLs")
         log("Shutting down")
