@@ -23,18 +23,53 @@ fun main(args: Array<String>) {
     }
 
     val pattern = Pattern.compile(args[0], Pattern.CASE_INSENSITIVE)
-    val reader = openInputFile(args[1])
-    val writer = openOutputFile(args[2])
 
-    Searcher().start(pattern, reader, writer)
+    InputFileReader(args[1]).use { reader ->
+        OutputFileWriter(args[2]).use { writer ->
+            Searcher().start(pattern, reader, writer)
+        }
+    }
 }
 
-fun openInputFile(inputName: String): BufferedReader {
-    return BufferedReader(FileReader(inputName))
+/**
+ * The file is a CSV in which the first field is a rank and the second file is a scheme-less URL
+ * surrounded by quotes.
+ */
+class InputFileReader(inputName: String): () -> String?, Closeable {
+
+    private val reader = BufferedReader(FileReader(inputName))
+
+    init {
+        // The first line is the header, so we'll just throw that away.
+        reader.readLine()
+    }
+
+    override fun invoke(): String? {
+        while (true) {
+            val line = reader.readLine() ?: return null
+            val values = line.split(',')
+            if (values.size >= 2) {
+                return values[1].trim('"')
+            }
+        }
+    }
+
+    override fun close() {
+        reader.close()
+    }
 }
 
-fun openOutputFile(outputName: String): PrintWriter {
-    return PrintWriter(FileWriter(outputName))
+class OutputFileWriter(outputName: String): (String) -> Unit, Closeable {
+
+    private val writer = PrintWriter(FileWriter(outputName))
+
+    override fun invoke(line: String) {
+        writer.println(line)
+    }
+
+    override fun close() {
+        writer.close()
+    }
 }
 
 const val HTTP_TIMEOUT_MILLIS = 5000
@@ -50,13 +85,19 @@ const val DEFAULT_CONTEXT_LENGTH = 40
 
 const val EOF = ""
 
+/**
+ * Main searcher class.
+ * This class manages the threads and applies the regex.
+ * We leave I/O to some other class (e.g., FileIO) and just read URLs from a supplier and write matching
+ * lines to a consumer.
+ */
 class Searcher(
     private val download: (String) -> String = ::downloadUsingJsoup,
     private val maxConcurrentRequests: Int = DEFAULT_MAX_CONCURRENT_REQUESTS,
     private val contextLength: Int = DEFAULT_CONTEXT_LENGTH
 ) {
 
-    fun start(pattern: Pattern, reader: BufferedReader, writer: PrintWriter) {
+    fun start(pattern: Pattern, reader: () -> String?, writer: (String) -> Unit) {
 
         // Allocate space in the queues for one pending item to/from each searcher.
         val searcherQueue = LinkedBlockingQueue<String>(maxConcurrentRequests)
@@ -80,7 +121,7 @@ class Searcher(
                     log("Received EOF")
                     break
                 }
-                writer.println(match)
+                writer(match)
                 count++
             }
         } catch (e: Exception) {
@@ -88,42 +129,29 @@ class Searcher(
             // If the writer thread failed, it's possible that the reader is still running and is blocked writing
             // to the searcher queue. Interrupt it to get it to stop.
             readerThread.interrupt()
-        } finally {
-            writer.close()
         }
         log("Wrote $count URLs")
     }
 
     private fun startReaderThread(
-        reader: BufferedReader,
+        reader: () -> String?,
         searcherQueue: BlockingQueue<String>
     ) = thread(name = "Reader") {
         log("Started")
         var count = 0
         try {
-            // The file is a CSV in which the first field is a rank and the second file is a scheme-less URL
-            // surrounded by quotes. The first line is the header, so we'll just throw that away.
-            reader.readLine()
-            var line = reader.readLine()
-            while (line != null) {
-                val values = line.split(',')
-                if (values.size >= 2) {
-                    val partialUrl = values[1].trim('"')
-                    log("Found $partialUrl")
-                    searcherQueue.put(partialUrl)
-                    count++
+            while (true) {
+                val partialUrl = reader()
+                if (partialUrl == null) {
+                    log("EOF")
+                    break
                 }
-                line = reader.readLine()
+                log("Found $partialUrl")
+                searcherQueue.put(partialUrl)
+                count++
             }
-            log("EOF")
-        } catch (e: InterruptedException) {
-            log("Interrupted", e)
-        } catch (e: InterruptedIOException) {
-            log("Interrupted", e)
         } catch (e: Exception) {
             log("Failed", e)
-        } finally {
-            reader.close()
         }
         log("Found $count URLs")
         searcherQueue.put(EOF)
