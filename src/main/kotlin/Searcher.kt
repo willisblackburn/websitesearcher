@@ -8,11 +8,6 @@ import java.util.regex.Pattern
 import kotlin.concurrent.thread
 import kotlin.system.exitProcess
 
-const val MAX_CONCURRENT_REQUESTS = 20
-const val HTTP_TIMEOUT = 5000
-const val CONTEXT_LENGTH = 40
-const val EOF = ""
-
 /**
  * Searcher word input output
  *
@@ -42,21 +37,61 @@ fun openOutputFile(outputName: String): PrintWriter {
     return PrintWriter(FileWriter(outputName))
 }
 
-class Searcher {
+const val DEFAULT_MAX_CONCURRENT_REQUESTS = 20
+const val DEFAULT_CONTEXT_LENGTH = 40
+
+const val HTTP_TIMEOUT_MILLIS = 5000
+
+fun downloadUsingJsoup(url: String): String {
+    val body = Jsoup.connect(url).timeout(HTTP_TIMEOUT_MILLIS).execute().body()
+    log("$url: Received ${body.length} characters")
+    return Jsoup.parse(body).text()
+}
+
+const val EOF = ""
+
+class Searcher(
+    val maxConcurrentRequests: Int = DEFAULT_MAX_CONCURRENT_REQUESTS,
+    val contextLength: Int = DEFAULT_CONTEXT_LENGTH,
+    val download: (String) -> String = ::downloadUsingJsoup
+) {
 
     fun start(pattern: Pattern, reader: BufferedReader, writer: PrintWriter) {
-        val searcherQueue = LinkedBlockingQueue<String>(MAX_CONCURRENT_REQUESTS)
-        val outputQueue = LinkedBlockingQueue<String>(MAX_CONCURRENT_REQUESTS)
 
+        // Allocate space in the queues for one pending item to/from each searcher.
+        val searcherQueue = LinkedBlockingQueue<String>(maxConcurrentRequests)
+        val outputQueue = LinkedBlockingQueue<String>(maxConcurrentRequests)
+
+        // Set up the threads.
+        // The searcher threads terminate when they receive an EOF from the reader, which will happen if the
+        // reader runs out of data, throws an exception, or is interrupted by the writer.
         val readerThread = startReaderThread(reader, searcherQueue)
-        val searcherCount = AtomicInteger(MAX_CONCURRENT_REQUESTS)
-        for (id in 0 until MAX_CONCURRENT_REQUESTS) {
+        val searcherCount = AtomicInteger(maxConcurrentRequests)
+        for (id in 0 until maxConcurrentRequests) {
             startSearcherThread(id, searcherCount, pattern, searcherQueue, outputQueue)
         }
-        val writerThread = startWriterThread(writer, outputQueue, readerThread)
 
-        readerThread.join()
-        writerThread.join()
+        // In this thread we'll receive the URLs from the output queue and write them out.
+        var count = 0
+        try {
+            while (true) {
+                val match = outputQueue.take()
+                if (match == EOF) {
+                    log("Received EOF")
+                    break;
+                }
+                writer.println(match)
+                count++
+            }
+        } catch (e: Exception) {
+            log("Failed", e)
+            // If the writer thread failed, it's possible that the reader is still running and is blocked writing
+            // to the searcher queue. Interrupt it to get it to stop.
+            readerThread.interrupt()
+        } finally {
+            writer.close()
+        }
+        log("Wrote $count URLs")
     }
 
     private fun startReaderThread(
@@ -92,35 +127,6 @@ class Searcher {
         }
         log("Found $count URLs")
         searcherQueue.put(EOF)
-        log("Shutting down")
-    }
-
-    private fun startWriterThread(
-        writer: PrintWriter,
-        outputQueue: BlockingQueue<String>,
-        readerThread: Thread
-    ) = thread(name = "Writer") {
-        log("Started")
-        var count = 0
-        try {
-            while (true) {
-                val match = outputQueue.take()
-                if (match == EOF) {
-                    log("Received EOF")
-                    return@thread
-                }
-                writer.println(match)
-                count++
-            }
-        } catch (e: Exception) {
-            log("Failed", e)
-            // If the writer thread failed, it's possible that the reader is still running and is blocked writing
-            // to the searcher queue. Interrupt it to get it to stop.
-            readerThread.interrupt()
-        } finally {
-            writer.close()
-        }
-        log("Wrote $count URLs")
         log("Shutting down")
     }
 
@@ -160,22 +166,23 @@ class Searcher {
     }
 
     private fun search(url: String, pattern: Pattern): String? {
-        val body = Jsoup.connect(url).timeout(HTTP_TIMEOUT).execute().body()
-        log("$url: Received ${body.length} characters")
-        val text = Jsoup.parse(body).text()
+        val text = download(url)
         val matcher = pattern.matcher(text)
         if (matcher.find()) {
             val context = text.substring(
-                max(matcher.start() - CONTEXT_LENGTH, 0),
-                min(matcher.end() + CONTEXT_LENGTH, text.length)
+                max(matcher.start() - contextLength, 0),
+                min(matcher.end() + contextLength, text.length)
             )
             return "$url: $context"
         }
         return null
     }
+}
 
-    private fun log(message: String, e: Exception? = null) {
-        val output = "${Thread.currentThread().name}: $message" + (e?.let { ": ${it.message}" } ?: "")
-        println(output)
-    }
+/**
+ * Log a message to the console, identifying the thread.
+ */
+fun log(message: String, e: Exception? = null) {
+    val output = "${Thread.currentThread().name}: $message" + (e?.let { ": ${it.message}" } ?: "")
+    println(output)
 }
