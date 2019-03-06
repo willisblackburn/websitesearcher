@@ -42,7 +42,7 @@ class SearcherTest {
         searcher.start(Pattern.compile("[b]ird?"), read, { line -> output.add(line) })
 
         assertEquals(1, output.size)
-        assertEquals("http://b.com/: A bird in the hand is worth two in the bush", output.get(0))
+        assertEquals("http://b.com/: A bird in the hand is worth two in the bush", output[0])
     }
 }
 
