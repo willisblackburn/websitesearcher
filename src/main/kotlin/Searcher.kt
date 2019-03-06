@@ -122,14 +122,14 @@ class Searcher(
     }
 
     private fun startReaderThread(
-        reader: () -> String?,
+        read: () -> String?,
         searcherQueue: BlockingQueue<String>
     ) = thread(name = "Reader") {
         log("Started")
         var count = 0
         try {
             while (true) {
-                val partialUrl = reader()
+                val partialUrl = read()
                 if (partialUrl == null) {
                     log("EOF")
                     break
