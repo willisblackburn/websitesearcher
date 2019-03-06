@@ -75,7 +75,7 @@ const val EOF = ""
 /**
  * Main searcher class.
  * This class manages the threads and applies the regex.
- * We leave I/O to some other class (e.g., FileIO) and just read URLs from a supplier and write matching
+ * We leave I/O to some other class (e.g., CSVFileReader) and just read URLs from a supplier and write matching
  * lines to a consumer.
  */
 class Searcher(
