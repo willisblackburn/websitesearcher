@@ -37,7 +37,7 @@ fun main(args: Array<String>) {
  * The file is a CSV in which the first field is a rank and the second field is a scheme-less URL
  * surrounded by quotes.
  */
-class CSVFileReader(val reader: BufferedReader): Closeable {
+class CSVFileReader(private val reader: BufferedReader) : Closeable {
 
     init {
         // The first line is the header, so we'll just throw that away.
@@ -95,7 +95,7 @@ class Searcher(
         // reader runs out of data, throws an exception, or is interrupted by the writer.
         val readerThread = startReaderThread(read, searcherQueue)
         val searcherCount = AtomicInteger(maxConcurrentRequests)
-        for (id in 0 until maxConcurrentRequests) {
+        val searcherThreads = (0 until maxConcurrentRequests).map { id ->
             startSearcherThread(id, searcherCount, pattern, searcherQueue, outputQueue)
         }
 
@@ -116,6 +116,7 @@ class Searcher(
             // If the writer thread failed, it's possible that the read is still running and is blocked writing
             // to the searcher queue. Interrupt it to get it to stop.
             readerThread.interrupt()
+            searcherThreads.forEach(Thread::interrupt)
         }
         log("Wrote $count matches")
     }
@@ -151,44 +152,50 @@ class Searcher(
     ) = thread(name = "Searcher $id") {
         log("Started")
         while (true) {
-            val partialUrl = searcherQueue.take()
-            if (partialUrl == EOF) {
-                val remaining = searcherCount.decrementAndGet()
-                log("Received EOF, $remaining searcher(s) remaining")
-                if (remaining == 0) {
-                    // Last searcher has exited, so signal the writer to exit too.
-                    outputQueue.put(EOF)
-                } else {
-                    // More searchers running, so put EOF back in the queue.
-                    searcherQueue.put(EOF)
-                }
-                break
-            }
-            // Try HTTP first and rely on redirect to identify HTTPS resources.
-            val url = "http://$partialUrl"
-            log("Requesting $url")
             try {
+                val partialUrl = searcherQueue.take()
+                if (partialUrl == EOF) {
+                    val remaining = searcherCount.decrementAndGet()
+                    log("Received EOF, $remaining searcher(s) remaining")
+                    if (remaining == 0) {
+                        // Last searcher has exited, so signal the writer to exit too.
+                        outputQueue.put(EOF)
+                    } else {
+                        // More searchers running, so put EOF back in the queue.
+                        searcherQueue.put(EOF)
+                    }
+                    break
+                }
+                // Try HTTP first and rely on redirect to identify HTTPS resources.
+                val url = "http://$partialUrl"
+                log("Requesting $url")
                 val match = search(url, pattern)
                 if (match != null) {
                     outputQueue.put(match)
                 }
             } catch (e: Exception) {
-                // Just report the error and carry on.
-                log("$url: Failed", e)
+                log("Failed", e)
             }
         }
         log("Shutting down")
     }
 
     private fun search(url: String, pattern: Pattern): String? {
-        val text = download(url)
-        val matcher = pattern.matcher(text)
-        if (matcher.find()) {
-            val context = text.substring(
-                max(matcher.start() - contextLength, 0),
-                min(matcher.end() + contextLength, text.length)
-            )
-            return "$url: $context"
+        try {
+            val text = download(url)
+            val matcher = pattern.matcher(text)
+            if (matcher.find()) {
+                val context = text.substring(
+                    max(matcher.start() - contextLength, 0),
+                    min(matcher.end() + contextLength, text.length)
+                )
+                return "$url: $context"
+            }
+        } catch (e: InterruptedException) {
+            throw e
+        } catch (e: Exception) {
+            // Just report the error and carry on.
+            log("$url: Failed", e)
         }
         return null
     }
